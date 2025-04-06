@@ -177,6 +177,66 @@
             background: rgba(255, 215, 0, 0.6);
             border: 2px solid #ffd700;
         }
+        
+        /* Virtual D-Pad */
+        #virtualDPad {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 180px;
+            height: 180px;
+            display: none;
+            z-index: 100;
+        }
+        
+        .dpad-button {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid #ffd700;
+            color: #ffd700;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        .dpad-button.active {
+            background: rgba(255, 215, 0, 0.6);
+            color: #000;
+        }
+        
+        #dpadUp {
+            top: 0;
+            left: 60px;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+        }
+        
+        #dpadRight {
+            top: 60px;
+            left: 120px;
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+        
+        #dpadDown {
+            top: 120px;
+            left: 60px;
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+        
+        #dpadLeft {
+            top: 60px;
+            left: 0;
+            border-top-left-radius: 10px;
+            border-bottom-left-radius: 10px;
+        }
     </style>
 </head>
 <body>
@@ -198,6 +258,14 @@
         <!-- Virtual joystick for mobile -->
         <div id="virtualJoystick">
             <div id="joystickKnob"></div>
+        </div>
+        
+        <!-- Virtual D-pad for mobile -->
+        <div id="virtualDPad">
+            <div id="dpadUp" class="dpad-button">↑</div>
+            <div id="dpadRight" class="dpad-button">→</div>
+            <div id="dpadDown" class="dpad-button">↓</div>
+            <div id="dpadLeft" class="dpad-button">←</div>
         </div>
     </div>
     <script src="sound-manager.js"></script>
@@ -227,7 +295,12 @@
         let isMobile = false;
         
         function handleTouchStart(event) {
-            event.preventDefault(); // Prevent scrolling
+            // Don't prevent default for all touch events as it breaks scrolling in some browsers
+            // Only prevent on game canvas
+            if (event.target && event.target.id === 'gameCanvas') {
+                event.preventDefault();
+            }
+            console.log('Touch start detected');
             touchStartX = event.changedTouches[0].screenX;
             touchStartY = event.changedTouches[0].screenY;
             touchActive = true;
@@ -240,7 +313,11 @@
             touchMoveThrottle = true;
             setTimeout(() => { touchMoveThrottle = false; }, 50);
             
-            event.preventDefault(); // Prevent scrolling
+            // Only prevent default on game canvas
+            if (event.target && event.target.id === 'gameCanvas') {
+                event.preventDefault();
+            }
+            
             const touch = event.changedTouches[0];
             const currentX = touch.screenX;
             const currentY = touch.screenY;
@@ -248,6 +325,9 @@
             // Calculate distances from start position
             const horizontalDistance = currentX - touchStartX;
             const verticalDistance = currentY - touchStartY;
+            
+            // Debug log
+            console.log('Touch move detected:', horizontalDistance, verticalDistance);
             
             // If we've moved far enough to be considered a swipe
             if (Math.abs(horizontalDistance) > minSwipeDistance || 
@@ -257,15 +337,19 @@
                 if (Math.abs(horizontalDistance) > Math.abs(verticalDistance)) {
                     // Horizontal movement
                     if (horizontalDistance > 0) {
+                        console.log('Right move detected');
                         triggerCommanderMove('d'); // Right
                     } else {
+                        console.log('Left move detected');
                         triggerCommanderMove('a'); // Left
                     }
                 } else {
                     // Vertical movement
                     if (verticalDistance > 0) {
+                        console.log('Down move detected');
                         triggerCommanderMove('s'); // Down
                     } else {
+                        console.log('Up move detected');
                         triggerCommanderMove('w'); // Up
                     }
                 }
@@ -273,7 +357,12 @@
         }
         
         function handleTouchEnd(event) {
-            event.preventDefault(); // Prevent scrolling
+            // Only prevent default on game canvas
+            if (event.target && event.target.id === 'gameCanvas') {
+                event.preventDefault();
+            }
+            
+            console.log('Touch end detected');
             touchActive = false;
             touchEndX = event.changedTouches[0].screenX;
             touchEndY = event.changedTouches[0].screenY;
@@ -399,9 +488,87 @@
             }
         }
         
+        // D-pad controls
+        let dpadButtonActive = false;
+        let activeDpadDirection = null;
+        let dpadInterval = null;
+        
+        function setupDPadControls() {
+            const dpad = document.getElementById('virtualDPad');
+            
+            // Show D-pad on mobile
+            dpad.style.display = 'block';
+            
+            // Get all D-pad buttons
+            const dpadUp = document.getElementById('dpadUp');
+            const dpadRight = document.getElementById('dpadRight');
+            const dpadDown = document.getElementById('dpadDown');
+            const dpadLeft = document.getElementById('dpadLeft');
+            
+            // Helper to handle D-pad button press
+            function handleDpadTouch(event, direction) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                // Visual feedback
+                event.currentTarget.classList.add('active');
+                
+                // Set active direction
+                activeDpadDirection = direction;
+                
+                // Immediately trigger movement
+                triggerCommanderMove(direction);
+                
+                // Set up repeating movement while button is held
+                if (dpadInterval) clearInterval(dpadInterval);
+                dpadInterval = setInterval(() => {
+                    if (activeDpadDirection) {
+                        triggerCommanderMove(activeDpadDirection);
+                    }
+                }, 100); // Repeat every 100ms
+                
+                console.log(`D-pad ${direction} pressed`);
+            }
+            
+            // Helper to handle D-pad button release
+            function handleDpadRelease(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                // Reset visual state of all buttons
+                dpadUp.classList.remove('active');
+                dpadRight.classList.remove('active');
+                dpadDown.classList.remove('active');
+                dpadLeft.classList.remove('active');
+                
+                // Clear active direction
+                activeDpadDirection = null;
+                
+                // Clear interval
+                if (dpadInterval) {
+                    clearInterval(dpadInterval);
+                    dpadInterval = null;
+                }
+                
+                console.log('D-pad button released');
+            }
+            
+            // Set up event listeners for each button
+            dpadUp.addEventListener('touchstart', (e) => handleDpadTouch(e, 'w'), { passive: false });
+            dpadRight.addEventListener('touchstart', (e) => handleDpadTouch(e, 'd'), { passive: false });
+            dpadDown.addEventListener('touchstart', (e) => handleDpadTouch(e, 's'), { passive: false });
+            dpadLeft.addEventListener('touchstart', (e) => handleDpadTouch(e, 'a'), { passive: false });
+            
+            // Single release handler for all buttons
+            dpad.addEventListener('touchend', handleDpadRelease, { passive: false });
+            dpad.addEventListener('touchcancel', handleDpadRelease, { passive: false });
+        }
+        
         function triggerCommanderMove(direction) {
             // Get reference to the game instance
             if (window.game) {
+                console.log('Triggering commander move:', direction);
+                
                 // Create a fake key event to reuse the existing keyboard handler logic
                 const keyEvent = {
                     key: direction,
@@ -410,6 +577,26 @@
                 
                 // Use the game's keyboard handler
                 window.game.handleKeyDown(keyEvent);
+                
+                // Set commander direction directly as a backup approach
+                if (window.game.commander) {
+                    switch(direction.toLowerCase()) {
+                        case 'w':
+                            window.game.commander.direction = { x: 0, y: -1 };
+                            break;
+                        case 's':
+                            window.game.commander.direction = { x: 0, y: 1 };
+                            break;
+                        case 'a':
+                            window.game.commander.direction = { x: -1, y: 0 };
+                            break;
+                        case 'd':
+                            window.game.commander.direction = { x: 1, y: 0 };
+                            break;
+                    }
+                }
+            } else {
+                console.error('Game instance not found for mobile controls');
             }
         }
         
@@ -419,6 +606,30 @@
             window.game = game;
             console.log('Game instance created');
             
+            // Store original startGame function to ensure mobile controls work after game starts
+            const originalStartGame = game.startGame;
+            game.startGame = function() {
+                // Call the original function
+                originalStartGame.call(this);
+                
+                // Ensure we have a global reference to the game after starting
+                window.game = this;
+                console.log('Game started, global reference updated');
+                
+                // Re-initialize mobile controls if needed
+                if (isMobile) {
+                    // Re-initialize joystick center position
+                    const joystick = document.getElementById('virtualJoystick');
+                    if (joystick) {
+                        const joystickRect = joystick.getBoundingClientRect();
+                        joystickCenter = {
+                            x: joystickRect.width / 2,
+                            y: joystickRect.height / 2
+                        };
+                    }
+                }
+            };
+            
             // Detect mobile devices
             isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
             
@@ -426,28 +637,42 @@
                 // Set up virtual joystick for mobile
                 setupVirtualJoystick();
                 
+                // Set up virtual D-pad controls
+                setupDPadControls();
+                
                 // Setup swipe controls for the game canvas
                 const gameCanvas = document.getElementById('gameCanvas');
-                gameCanvas.addEventListener('touchstart', handleTouchStart, false);
-                gameCanvas.addEventListener('touchmove', handleTouchMove, false);
-                gameCanvas.addEventListener('touchend', handleTouchEnd, false);
+                gameCanvas.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
+                gameCanvas.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
+                gameCanvas.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
+                
+                // Make game canvas intercept all touch events
+                gameCanvas.style.touchAction = 'none';
+                
+                // Also add touch events to the game container for better coverage
+                const gameContainer = document.querySelector('.game-container');
+                gameContainer.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
+                gameContainer.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
+                gameContainer.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
                 
                 // Add mobile info text
                 const mobileInfo = document.createElement('p');
-                mobileInfo.textContent = 'Use joystick or swipe to move';
+                mobileInfo.textContent = 'Use D-pad or joystick to move';
                 mobileInfo.style.position = 'absolute';
-                mobileInfo.style.bottom = '10px';
+                mobileInfo.style.bottom = '240px';
                 mobileInfo.style.left = '0';
                 mobileInfo.style.right = '0';
                 mobileInfo.style.textAlign = 'center';
                 mobileInfo.style.color = '#FFD700';
-                mobileInfo.style.fontSize = '16px';
+                mobileInfo.style.fontSize = '18px';
                 mobileInfo.style.fontFamily = "'Courier New', monospace";
-                mobileInfo.style.textShadow = '1px 1px 2px #000';
+                mobileInfo.style.textShadow = '2px 2px 4px #000';
+                mobileInfo.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                mobileInfo.style.padding = '10px';
+                mobileInfo.style.zIndex = '200';
                 document.querySelector('.game-container').appendChild(mobileInfo);
                 
                 // Make canvas fill the viewport on mobile
-                const gameContainer = document.querySelector('.game-container');
                 const resizeCanvas = () => {
                     const screenRatio = window.innerWidth / window.innerHeight;
                     const gameRatio = gameCanvas.width / gameCanvas.height;
