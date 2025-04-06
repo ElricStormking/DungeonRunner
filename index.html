@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Dungeon Runner</title>
     <style>
         body {
@@ -102,6 +102,81 @@
             background: #ffd700;
             color: #000;
         }
+        
+        /* Mobile optimizations */
+        @media (max-width: 767px) {
+            body {
+                align-items: flex-start;
+                background: #000;
+            }
+            
+            .game-container {
+                box-shadow: none;
+                width: 100%;
+                height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            
+            #gameCanvas {
+                border: none;
+                max-width: 100%;
+                max-height: 100vh;
+            }
+            
+            .game-ui {
+                font-size: 1em;
+                top: 10px;
+                left: 10px;
+            }
+            
+            .sound-controls {
+                top: 10px;
+                right: 10px;
+            }
+            
+            .sound-controls button {
+                padding: 8px;
+                font-size: 1.2em;
+            }
+            
+            .start-screen h1 {
+                font-size: 2em;
+            }
+            
+            #startButton {
+                padding: 10px 20px;
+            }
+        }
+        
+        /* Virtual joystick */
+        #virtualJoystick {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid #ffd700;
+            touch-action: none;
+            display: none;
+            z-index: 100;
+        }
+        
+        #joystickKnob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(255, 215, 0, 0.6);
+            border: 2px solid #ffd700;
+        }
     </style>
 </head>
 <body>
@@ -120,6 +195,10 @@
             <button id="startButton">Start Game</button>
             <p style="margin-top: 20px; font-size: 14px; color: #FFD700;">Press SPACEBAR to hear the game start sound</p>
         </div>
+        <!-- Virtual joystick for mobile -->
+        <div id="virtualJoystick">
+            <div id="joystickKnob"></div>
+        </div>
     </div>
     <script src="sound-manager.js"></script>
     <script>
@@ -137,9 +216,276 @@
             }
         }
         
+        // Mobile touch controls
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchEndX = 0;
+        let touchEndY = 0;
+        let minSwipeDistance = 50; // Minimum distance to be considered a swipe
+        let touchActive = false;
+        let touchMoveThrottle = false;
+        let isMobile = false;
+        
+        function handleTouchStart(event) {
+            event.preventDefault(); // Prevent scrolling
+            touchStartX = event.changedTouches[0].screenX;
+            touchStartY = event.changedTouches[0].screenY;
+            touchActive = true;
+        }
+        
+        function handleTouchMove(event) {
+            if (!touchActive || touchMoveThrottle) return;
+            
+            // Throttle touch move events to prevent overwhelming the game
+            touchMoveThrottle = true;
+            setTimeout(() => { touchMoveThrottle = false; }, 50);
+            
+            event.preventDefault(); // Prevent scrolling
+            const touch = event.changedTouches[0];
+            const currentX = touch.screenX;
+            const currentY = touch.screenY;
+            
+            // Calculate distances from start position
+            const horizontalDistance = currentX - touchStartX;
+            const verticalDistance = currentY - touchStartY;
+            
+            // If we've moved far enough to be considered a swipe
+            if (Math.abs(horizontalDistance) > minSwipeDistance || 
+                Math.abs(verticalDistance) > minSwipeDistance) {
+                    
+                // Determine dominant direction
+                if (Math.abs(horizontalDistance) > Math.abs(verticalDistance)) {
+                    // Horizontal movement
+                    if (horizontalDistance > 0) {
+                        triggerCommanderMove('d'); // Right
+                    } else {
+                        triggerCommanderMove('a'); // Left
+                    }
+                } else {
+                    // Vertical movement
+                    if (verticalDistance > 0) {
+                        triggerCommanderMove('s'); // Down
+                    } else {
+                        triggerCommanderMove('w'); // Up
+                    }
+                }
+            }
+        }
+        
+        function handleTouchEnd(event) {
+            event.preventDefault(); // Prevent scrolling
+            touchActive = false;
+            touchEndX = event.changedTouches[0].screenX;
+            touchEndY = event.changedTouches[0].screenY;
+            processSwipe();
+        }
+        
+        function processSwipe() {
+            // Calculate distances
+            const horizontalDistance = touchEndX - touchStartX;
+            const verticalDistance = touchEndY - touchStartY;
+            
+            // Determine if the swipe is primarily horizontal or vertical
+            if (Math.abs(horizontalDistance) > Math.abs(verticalDistance) && 
+                Math.abs(horizontalDistance) > minSwipeDistance) {
+                // Horizontal swipe
+                if (horizontalDistance > 0) {
+                    console.log('Swipe right detected');
+                    triggerCommanderMove('d'); // Right
+                } else {
+                    console.log('Swipe left detected');
+                    triggerCommanderMove('a'); // Left
+                }
+            } else if (Math.abs(verticalDistance) > minSwipeDistance) {
+                // Vertical swipe
+                if (verticalDistance > 0) {
+                    console.log('Swipe down detected');
+                    triggerCommanderMove('s'); // Down
+                } else {
+                    console.log('Swipe up detected');
+                    triggerCommanderMove('w'); // Up
+                }
+            }
+        }
+        
+        // Virtual joystick controls
+        let joystickActive = false;
+        let joystickCenter = { x: 0, y: 0 };
+        let joystickThrottle = false;
+        
+        function setupVirtualJoystick() {
+            const joystick = document.getElementById('virtualJoystick');
+            const knob = document.getElementById('joystickKnob');
+            
+            // Show joystick on mobile
+            joystick.style.display = 'block';
+            
+            // Initialize joystick center position
+            const joystickRect = joystick.getBoundingClientRect();
+            joystickCenter = {
+                x: joystickRect.width / 2,
+                y: joystickRect.height / 2
+            };
+            
+            // Touch events for joystick
+            joystick.addEventListener('touchstart', handleJoystickStart, false);
+            joystick.addEventListener('touchmove', handleJoystickMove, false);
+            joystick.addEventListener('touchend', handleJoystickEnd, false);
+            joystick.addEventListener('touchcancel', handleJoystickEnd, false);
+            
+            function handleJoystickStart(event) {
+                event.preventDefault();
+                joystickActive = true;
+            }
+            
+            function handleJoystickMove(event) {
+                if (!joystickActive || joystickThrottle) return;
+                
+                // Throttle joystick events
+                joystickThrottle = true;
+                setTimeout(() => { joystickThrottle = false; }, 50);
+                
+                event.preventDefault();
+                
+                const touch = event.touches[0];
+                const joystickRect = joystick.getBoundingClientRect();
+                
+                // Calculate touch position relative to joystick center
+                const touchX = touch.clientX - joystickRect.left;
+                const touchY = touch.clientY - joystickRect.top;
+                
+                // Calculate distance from center
+                const deltaX = touchX - joystickCenter.x;
+                const deltaY = touchY - joystickCenter.y;
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                
+                // Limit knob movement to joystick radius
+                const maxDistance = joystickRect.width / 2 - knob.offsetWidth / 2;
+                let limitedDistance = Math.min(distance, maxDistance);
+                
+                // Calculate normalized direction
+                const angle = Math.atan2(deltaY, deltaX);
+                const knobX = limitedDistance * Math.cos(angle);
+                const knobY = limitedDistance * Math.sin(angle);
+                
+                // Position the knob
+                knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+                
+                // Send movement command based on joystick position
+                if (distance > maxDistance * 0.3) { // Add a small deadzone
+                    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                        // Horizontal movement dominant
+                        if (deltaX > 0) {
+                            triggerCommanderMove('d'); // Right
+                        } else {
+                            triggerCommanderMove('a'); // Left
+                        }
+                    } else {
+                        // Vertical movement dominant
+                        if (deltaY > 0) {
+                            triggerCommanderMove('s'); // Down
+                        } else {
+                            triggerCommanderMove('w'); // Up
+                        }
+                    }
+                }
+            }
+            
+            function handleJoystickEnd(event) {
+                event.preventDefault();
+                joystickActive = false;
+                // Reset knob position
+                knob.style.transform = 'translate(-50%, -50%)';
+            }
+        }
+        
+        function triggerCommanderMove(direction) {
+            // Get reference to the game instance
+            if (window.game) {
+                // Create a fake key event to reuse the existing keyboard handler logic
+                const keyEvent = {
+                    key: direction,
+                    preventDefault: () => {}
+                };
+                
+                // Use the game's keyboard handler
+                window.game.handleKeyDown(keyEvent);
+            }
+        }
+        
         window.addEventListener('load', () => {
             const game = new Game();
+            // Store game reference globally for mobile controls
+            window.game = game;
             console.log('Game instance created');
+            
+            // Detect mobile devices
+            isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                // Set up virtual joystick for mobile
+                setupVirtualJoystick();
+                
+                // Setup swipe controls for the game canvas
+                const gameCanvas = document.getElementById('gameCanvas');
+                gameCanvas.addEventListener('touchstart', handleTouchStart, false);
+                gameCanvas.addEventListener('touchmove', handleTouchMove, false);
+                gameCanvas.addEventListener('touchend', handleTouchEnd, false);
+                
+                // Add mobile info text
+                const mobileInfo = document.createElement('p');
+                mobileInfo.textContent = 'Use joystick or swipe to move';
+                mobileInfo.style.position = 'absolute';
+                mobileInfo.style.bottom = '10px';
+                mobileInfo.style.left = '0';
+                mobileInfo.style.right = '0';
+                mobileInfo.style.textAlign = 'center';
+                mobileInfo.style.color = '#FFD700';
+                mobileInfo.style.fontSize = '16px';
+                mobileInfo.style.fontFamily = "'Courier New', monospace";
+                mobileInfo.style.textShadow = '1px 1px 2px #000';
+                document.querySelector('.game-container').appendChild(mobileInfo);
+                
+                // Make canvas fill the viewport on mobile
+                const gameContainer = document.querySelector('.game-container');
+                const resizeCanvas = () => {
+                    const screenRatio = window.innerWidth / window.innerHeight;
+                    const gameRatio = gameCanvas.width / gameCanvas.height;
+                    
+                    let newWidth, newHeight;
+                    
+                    if (screenRatio > gameRatio) {
+                        // Screen is wider than game ratio
+                        newHeight = Math.min(window.innerHeight, gameCanvas.height);
+                        newWidth = newHeight * gameRatio;
+                    } else {
+                        // Screen is taller than game ratio
+                        newWidth = Math.min(window.innerWidth, gameCanvas.width);
+                        newHeight = newWidth / gameRatio;
+                    }
+                    
+                    gameCanvas.style.width = `${newWidth}px`;
+                    gameCanvas.style.height = `${newHeight}px`;
+                };
+                
+                // Initial resize and add listener
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+                
+                // Handle orientation changes specifically
+                window.addEventListener('orientationchange', () => {
+                    // Allow time for the orientation to complete
+                    setTimeout(resizeCanvas, 300);
+                    
+                    // Reposition joystick when orientation changes
+                    const joystick = document.getElementById('virtualJoystick');
+                    const joystickRect = joystick.getBoundingClientRect();
+                    joystickCenter = {
+                        x: joystickRect.width / 2,
+                        y: joystickRect.height / 2
+                    };
+                });
+            }
             
             // Initialize startScreen click handler for audio
             const startScreen = document.getElementById('startScreen');

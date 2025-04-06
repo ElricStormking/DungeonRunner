@@ -2299,21 +2299,28 @@ class Game {
         window.addEventListener('keydown', (e) => {
             if (!this.isPlaying) return;
             
-            switch(e.key.toLowerCase()) {
-                case 'w':
-                    this.commander.direction = { x: 0, y: -1 };
-                    break;
-                case 's':
-                    this.commander.direction = { x: 0, y: 1 };
-                    break;
-                case 'a':
-                    this.commander.direction = { x: -1, y: 0 };
-                    break;
-                case 'd':
-                    this.commander.direction = { x: 1, y: 0 };
-                    break;
-            }
+            this.handleKeyDown(e);
         });
+    }
+    
+    // Handle keyboard input - can be called directly or via events
+    handleKeyDown(e) {
+        if (!this.isPlaying) return;
+        
+        switch(e.key.toLowerCase()) {
+            case 'w':
+                this.commander.direction = { x: 0, y: -1 };
+                break;
+            case 's':
+                this.commander.direction = { x: 0, y: 1 };
+                break;
+            case 'a':
+                this.commander.direction = { x: -1, y: 0 };
+                break;
+            case 'd':
+                this.commander.direction = { x: 1, y: 0 };
+                break;
+        }
     }
 
     startGame() {
