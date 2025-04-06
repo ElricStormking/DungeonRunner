@@ -73,6 +73,35 @@
             font-size: 1.2em;
             text-shadow: 2px 2px 2px #000;
         }
+        
+        .sound-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .sound-controls button {
+            background: #333;
+            color: #ffd700;
+            border: 2px solid #ffd700;
+            padding: 5px 10px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .sound-controls button:hover {
+            background: #ffd700;
+            color: #000;
+        }
+        
+        .sound-controls button.active {
+            background: #ffd700;
+            color: #000;
+        }
     </style>
 </head>
 <body>
@@ -82,16 +111,98 @@
             <div class="score">Score: <span id="scoreValue">0</span></div>
             <div class="health">Health: <span id="healthValue">100</span></div>
         </div>
+        <div class="sound-controls">
+            <button id="musicToggle" title="Toggle Music">♫</button>
+            <button id="soundToggle" title="Toggle Sound Effects">🔊</button>
+        </div>
         <div id="startScreen" class="start-screen">
             <h1>Dungeon Runner</h1>
             <button id="startButton">Start Game</button>
+            <p style="margin-top: 20px; font-size: 14px; color: #FFD700;">Press SPACEBAR to hear the game start sound</p>
         </div>
     </div>
+    <script src="sound-manager.js"></script>
     <script>
         console.log('Loading game...');
+        
+        // Handle user interaction to initialize audio
+        document.addEventListener('click', initAudioOnUserInteraction, { once: true });
+        document.addEventListener('keydown', initAudioOnUserInteraction, { once: true });
+        
+        function initAudioOnUserInteraction() {
+            console.log('User interaction detected, initializing audio');
+            if (soundManager) {
+                soundManager.initializeAudio();
+                // Don't force play game start sound - only on spacebar press
+            }
+        }
+        
         window.addEventListener('load', () => {
             const game = new Game();
             console.log('Game instance created');
+            
+            // Initialize startScreen click handler for audio
+            const startScreen = document.getElementById('startScreen');
+            if (startScreen) {
+                startScreen.addEventListener('click', () => {
+                    // Initialize audio on any click on start screen
+                    if (soundManager) {
+                        soundManager.initializeAudio();
+                        // Don't play game start sound on regular clicks
+                    }
+                });
+            }
+            
+            // Add spacebar handler to play game-start.mp3 sound on title screen
+            document.addEventListener('keydown', (event) => {
+                if (event.code === 'Space' && startScreen && startScreen.style.display !== 'none') {
+                    event.preventDefault(); // Prevent default spacebar action
+                    console.log('Spacebar pressed on title screen');
+                    
+                    if (soundManager) {
+                        soundManager.initializeAudio();
+                        soundManager.forcePlayGameStart();
+                    }
+                }
+            });
+            
+            // Set up sound control buttons
+            const musicToggle = document.getElementById('musicToggle');
+            const soundToggle = document.getElementById('soundToggle');
+            
+            musicToggle.addEventListener('click', () => {
+                const isEnabled = soundManager.toggleMusic();
+                musicToggle.classList.toggle('active', isEnabled);
+                soundManager.playSound('buttonClick');
+                
+                // Also initialize audio here
+                soundManager.initializeAudio();
+            });
+            
+            soundToggle.addEventListener('click', () => {
+                const isEnabled = !soundManager.toggleMute();
+                soundToggle.classList.toggle('active', isEnabled);
+                
+                // Also initialize audio here
+                soundManager.initializeAudio();
+                
+                if (!soundManager.isMuted) {
+                    soundManager.playSound('buttonClick');
+                    // Don't play game start sound on toggle
+                }
+            });
+            
+            // Initialize button states
+            musicToggle.classList.add('active');
+            soundToggle.classList.add('active');
+            
+            // Start button sound and also initialize audio
+            document.getElementById('startButton').addEventListener('mousedown', () => {
+                soundManager.initializeAudio();
+                soundManager.playSound('buttonClick');
+            });
+            
+            // Don't automatically play the game start sound on page load
         });
     </script>
     <script src="game.js"></script>

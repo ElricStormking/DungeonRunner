@@ -255,34 +255,29 @@ class Commander {
     }
 
     takeDamage(amount) {
-        // Store previous health to check for critical health threshold
-        const previousHealth = this.health;
-        
-        // Apply damage
         this.health -= amount;
         this.lastDamageTime = Date.now();
         
-        // Show damage number if we have a game reference
+        // Play hit sound
+        if (this.game && this.game.soundManager) {
+            this.game.soundManager.playSound('playerHit');
+        }
+        
+        // Trigger screen shake on damage
+        if (this.game) {
+            this.game.triggerScreenShake(amount, 15);
+        }
+        
+        // Calculate damage-based color transparency 
+        const damageAlpha = Math.min(1, amount / 20);
+        
+        // Use the Game's notification system if available
         if (this.game) {
             this.game.showDamageNumber(amount, this.x, this.y, this.size);
         }
         
-        // Check if health dropped below critical threshold (25%)
-        if (previousHealth > this.maxHealth * 0.25 && this.health <= this.maxHealth * 0.25 && this.health > 0) {
-            // Trigger critical health warning if we have a game reference
-            if (this.game) {
-                // Flash screen red
-                this.game.flashEffect.alpha = 0.5;
-                this.game.flashEffect.color = '#FF0000';
-                
-                // Show critical health warning
-                this.game.waveStatusAlpha = 1;
-                this.game.waveStatusText = "CRITICAL DAMAGE!";
-                
-                // Extra screen shake
-                this.game.triggerScreenShake(12, 20);
-            }
-        }
+        // Return whether the commander is dead
+        return this.health <= 0;
     }
 
     draw(ctx) {
@@ -1516,6 +1511,11 @@ class Follower {
             console.log("Performing special attack: " + this.steamClass.attackStyle + " for " + this.steamClass.name);
         }
         
+        // Play appropriate attack sound
+        if (this.game && this.game.soundManager) {
+            this.game.soundManager.playSpecificClassSound(this.steamClass.name, 'attack');
+        }
+        
         switch (this.steamClass.attackStyle) {
             case 'SWORD_SWEEP':
                  // Call the global function
@@ -2040,24 +2040,53 @@ class SteamCore {
     draw(ctx) {
         if (this.collected) return;
         
-        // Draw core
-        ctx.fillStyle = this.color;
+        // Potion dimensions
+        const bottleWidth = this.size * 1.5;
+        const bottleHeight = this.size * 2;
+        const neckWidth = bottleWidth * 0.6;
+        const neckHeight = bottleHeight * 0.3;
+        const capHeight = bottleHeight * 0.2;
+        
+        // Position calculations
+        const bottleX = this.x - bottleWidth / 2;
+        const bottleY = this.y - bottleHeight / 2;
+        const neckX = this.x - neckWidth / 2;
+        const neckY = bottleY;
+        const capX = this.x - neckWidth / 2;
+        const capY = bottleY - capHeight;
+        
+        // Draw potion body (main part of bottle)
+        pixelRect(ctx, bottleX, bottleY + neckHeight, bottleWidth, bottleHeight - neckHeight, '#D3D3D3'); // Light gray glass
+        
+        // Draw liquid inside
+        pixelRect(ctx, bottleX + PIXEL_SIZE, bottleY + neckHeight + PIXEL_SIZE, 
+                 bottleWidth - (PIXEL_SIZE * 2), bottleHeight - neckHeight - (PIXEL_SIZE * 2), this.color);
+        
+        // Draw bottle neck
+        pixelRect(ctx, neckX, neckY, neckWidth, neckHeight, '#D3D3D3');
+        
+        // Draw liquid in neck
+        pixelRect(ctx, neckX + PIXEL_SIZE, neckY + PIXEL_SIZE, 
+                 neckWidth - (PIXEL_SIZE * 2), neckHeight - PIXEL_SIZE, this.color);
+        
+        // Draw bottle cap
+        pixelRect(ctx, capX, capY, neckWidth, capHeight, '#A0522D'); // Brown cap
+        
+        // Draw highlight/shine effect on the bottle
+        pixelRect(ctx, bottleX + PIXEL_SIZE, bottleY + neckHeight + PIXEL_SIZE, 
+                 PIXEL_SIZE * 2, PIXEL_SIZE * 2, 'rgba(255, 255, 255, 0.7)');
+        
+        // Draw bubbles in the potion
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.arc(this.x - bottleWidth/4, this.y + this.size/2, PIXEL_SIZE, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(this.x + bottleWidth/4, this.y, PIXEL_SIZE * 1.5, 0, Math.PI * 2);
         ctx.fill();
         
-        // Draw gear effect
-        ctx.strokeStyle = '#A9A9A9';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size + 3, 0, Math.PI * 2);
-        ctx.stroke();
-        
-        // Draw inner steam effect
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size - 4, 0, Math.PI * 2);
-        ctx.stroke();
+        // Label (stripe across the middle)
+        pixelRect(ctx, bottleX, bottleY + bottleHeight/2, bottleWidth, PIXEL_SIZE * 2, '#E6E6E6');
     }
 }
 
@@ -2129,6 +2158,14 @@ class Game {
         
         console.log('Canvas dimensions:', this.canvas.width, 'x', this.canvas.height);
         
+        // Sound initialization - do this early
+        if (typeof soundManager !== 'undefined') {
+            this.soundManager = soundManager;
+            console.log('Sound manager initialized');
+        } else {
+            console.warn('Sound manager not available');
+        }
+        
         // Add camera system
         this.camera = {
             x: 0,
@@ -2136,6 +2173,9 @@ class Game {
             width: this.canvas.width,
             height: this.canvas.height
         };
+        
+        // Additional flags for game state management
+        this.deathSoundPlayed = false; // Flag to track if death sound has been played
         
         // Add environment elements
         this.environment = [];
@@ -2239,13 +2279,17 @@ class Game {
         // this.collectionEffects = [];
         
         this.setupEventListeners();
-        this.showStartScreen();
-        
-        console.log('Game initialization complete');
         
         // Add notification system
         this.notifications = [];
         this.notificationDuration = 3000; // 3 seconds
+
+        // Finally show the start screen
+        this.showStartScreen();
+        
+        console.log('Game initialization complete');
+        
+        // We're now playing the game start sound from window.onload instead
     }
 
     setupEventListeners() {
@@ -2273,50 +2317,45 @@ class Game {
     }
 
     startGame() {
-        console.log('Starting game...');
         this.isPlaying = true;
+        this.startTime = Date.now();
+        
+        // Reset game state flags
+        this.deathSoundPlayed = false;
+        
+        // Initialize game state
         this.score = 0;
-        this.health = 100;
-        
-        // Initialize commander and pass game reference
-        // Use exact center calculation to avoid any rounding issues
-        const centerX = Math.floor(this.canvas.width / 2);
-        const centerY = Math.floor(this.canvas.height / 2);
-        this.commander = new Commander(centerX, centerY, this);
-        console.log('Commander created at:', centerX, centerY);
-        
-        // Immediately update camera to center on commander
-        this.updateCamera();
-        
-        this.followers = [];
-        this.engineers = [];
-        this.enemies = [];
-        this.engineerSpawnTimer = 0;
-        this.enemySpawnTimer = 0;
-        this.lastEnemySpawnTime = 0;
-        this.enemySpawnDelay = 2000; // Reset spawn delay
-        this.steamCores = [];
-        this.steamCoreSpawnTimer = 0;
-        
-        // Reset level properties
         this.level = 1;
-        this.waveTimer = 0;
-        this.enemiesDefeated = 0;
-        this.enemiesRequiredForWave = 10; // Initial requirement: 10 enemies in first wave
-        this.waveCompleted = false;
-        this.waveStatusAlpha = 1;
-        this.waveStatusText = 'Wave 1 Started!';
+        this.wave = 1;
         
-        // Hide the start screen
-        const startScreen = document.getElementById('startScreen');
-        if (startScreen) {
-            console.log('Hiding start screen');
-            startScreen.style.display = 'none';
-        } else {
-            console.error('Start screen element not found!');
+        // Reset commander health
+        if (this.commander) {
+            this.commander.health = this.commander.maxHealth;
         }
         
-        // Start the game loop
+        // Create commander at center
+        if (!this.commander) {
+            const canvasWidth = this.canvas.width;
+            const canvasHeight = this.canvas.height;
+            this.commander = new Commander(canvasWidth / 2, canvasHeight / 2, this);
+            console.log(`Commander created at: ${Math.round(canvasWidth / 2)} ${Math.round(canvasHeight / 2)}`);
+        }
+        
+        // Hide start screen
+        const startScreen = document.getElementById('startScreen');
+        if (startScreen) {
+            startScreen.style.display = 'none';
+        }
+        
+        // Play only background music (not game start sound)
+        if (this.soundManager) {
+            this.soundManager.playMusic();
+        }
+        
+        this.followers = [];
+        this.enemies = [];
+        this.engineers = [];
+        
         console.log('Starting game loop');
         this.gameLoop();
     }
@@ -2334,12 +2373,21 @@ class Game {
         if (startScreen) {
             startScreen.style.display = 'flex';
             console.log('Start screen set to display: flex');
+            
+            // We don't need to play the sound here anymore - it's handled in the constructor
+            // with a delay to ensure everything is loaded
         } else {
             console.error('Start screen element not found!');
         }
     }
 
     spawnEngineer() {
+        // Max engineer limit check
+        const maxEngineers = 6;
+        if (this.engineers.length >= maxEngineers) {
+            return; // Don't spawn if we've reached the maximum limit
+        }
+        
         const margin = 40; // Minimum distance from edges
         const minDistanceBetweenEngineers = 100; // Minimum distance between engineers
         const maxAttempts = 50; // Maximum attempts to find a valid spawn position
@@ -2599,6 +2647,36 @@ class Game {
             this.flashEffect.color = color;
         }
     }
+    
+    // Create a dedicated lightweight rejection effect
+    createRejectionEffect(x, y) {
+        // Use a consistent red color for rejections
+        const rejectionColor = '#FF0000';
+        
+        // Create just a few particles (5 instead of 20)
+        for (let i = 0; i < 5; i++) {
+            const particle = this.particlePool.get(x, y, rejectionColor);
+            if (particle) {
+                // Make rejection particles faster and shorter-lived
+                particle.speedX *= 1.5;
+                particle.speedY *= 1.5;
+                particle.decay *= 2;
+            }
+        }
+        
+        // Add a notification text
+        this.addNotification(
+            "Team Full!", 
+            rejectionColor,
+            x, 
+            y - 30,
+            {
+                fontSize: 16,
+                duration: 1000, // shorter duration
+                align: 'center'
+            }
+        );
+    }
 
     // Create a dedicated method for collection effects without screen shake
     createEngineerCollectionEffect(x, y, color) {
@@ -2625,8 +2703,8 @@ class Game {
             if (distance < this.commander.size + engineer.size) {
                 // Check if team is at max size
                 if (this.followers.length >= 12) {
-                    // Create a different effect to show rejection
-                    this.createCollectionEffect(engineer.x, engineer.y, '#FF0000', false);
+                    // Use the new lightweight rejection effect instead
+                    this.createRejectionEffect(engineer.x, engineer.y);
                     return;
                 }
 
@@ -2871,6 +2949,18 @@ class Game {
             startScreen.style.display = 'flex';
         } else {
             console.error('Start screen element not found!');
+        }
+        
+        // Use sound manager to play the death sound properly
+        if (this.soundManager && !this.deathSoundPlayed) {
+            // Stop the background music first
+            this.soundManager.stopMusic();
+            
+            // Mark that we've played the death sound
+            this.deathSoundPlayed = true;
+            
+            // Use the dedicated method for death sound
+            this.soundManager.playDeathSound();
         }
     }
 
@@ -3746,6 +3836,55 @@ class Game {
             return this.setClassSpawnRate(className, currentRate * multiplier);
         }
         return false;
+    }
+
+    collectEngineer(engineer) {
+        if (engineer.collected) return null;
+        
+        engineer.collected = true;
+        
+        // Play pickup sound
+        if (this.soundManager) {
+            this.soundManager.playSound('powerup');
+        }
+        
+        // Check if we need a new follower
+        if (this.followers.length < this.maxFollowers) {
+            // Create a new follower with this engineer's class
+            const follower = new Follower(
+                engineer.x,
+                engineer.y,
+                this.followers.length > 0 ? this.followers[this.followers.length - 1] : this.commander,
+                this
+            );
+            
+            // Copy the engineer's class to the follower
+            follower.assignClass(Object.keys(STEAM_CLASSES).find(key => 
+                STEAM_CLASSES[key].name === engineer.steamClass.name
+            ));
+            
+            this.followers.push(follower);
+            
+            // Add notification
+            this.addNotification(
+                `${follower.steamClass.name} joined your team!`,
+                follower.color,
+                engineer.x,
+                engineer.y - 30,
+                {
+                    fontSize: 16,
+                    align: 'center',
+                    isUpgrade: true
+                }
+            );
+            
+            console.log(`Added new follower: ${follower.steamClass.name}`);
+        } else {
+            // Enhance an existing follower
+            this.upgradeRandomFollower();
+        }
+        
+        return engineer;
     }
 }
 
@@ -4652,6 +4791,12 @@ function performSwordSweepAttack(attacker, enemies) {
 
     // Create the sweep effect using the global function
     createAttackEffect(attacker, 'SWORD_SWEEP', attacker.x, attacker.y, angle);
+    
+    // Play sword swing sound
+    // Check if this is the commander attacking (and not a follower)
+    if (attacker instanceof Commander && attacker.game && attacker.game.soundManager) {
+        attacker.game.soundManager.playSound('swordSwing');
+    }
 
     // Check for enemies in the sweep arc (180 degrees)
     const attackDamage = attacker.attackDamage || 3; // Use attacker's damage
